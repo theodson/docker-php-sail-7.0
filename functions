@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+PATH=./vendor/bin:$PATH
+export PATH
+
+export HISTSIZE=50000
+export HISTCONTROL=ignoredups
+export HISTTIMEFORMAT='%Y-%m-%d - %H:%M:%S '
+
+alias art='php artisan'
+alias artisan='php artisan'
+alias tinker='art tinker'
