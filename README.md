@@ -1,7 +1,7 @@
 # Laravel Sail Php 7.0 - `php-sail-7.0`
 
 - Based on [Laravel Sail Docker 8.0](https://github.com/laravel/sail/blob/v1.38.0/runtimes/8.0/Dockerfile) image
-- Specifically users the last ubuntu:20.04 Sail build release 1.38.0 - https://github.com/laravel/sail/tree/v1.38.0
+- Specifically uses the last ubuntu:20.04 Sail build release 1.38.0 - https://github.com/laravel/sail/tree/v1.38.0
 - Modified to use Php 7.0
 
 This image is not directly compatible with Laravel Sail.
