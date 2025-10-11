@@ -90,6 +90,9 @@ COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 RUN apt-get install -y php7.0-dev git pkg-config build-essential libmemcached-dev
 RUN npm install -g bin && npm install -g npm
 
+RUN setcap "cap_net_bind_service=+ep" /usr/bin/php7.0
+COPY php.ini /etc/php/7.0/cli/conf.d/99-sail.ini
+
 RUN chmod +x /usr/local/bin/start-container
 
 EXPOSE 80/tcp
