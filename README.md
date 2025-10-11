@@ -13,13 +13,29 @@ An image is available at [Docker Hub - theodson/php-sail-7.0](https://hub.docker
 > 
 
 This was published using the following commands
+
+Intel
+
 ```bash
 # Authenticate for your DockerHub account
 docker login
 
 # Prepare and Tag local image for the DockerHub repository.
-docker tag php-sail-7.0 theodson/php-sail-7.0:1.0
+docker tag theodson/php-sail-7.0 theodson/php-sail-7.0:1.0
 
 # Push to Docker Hub
 docker push theodson/php-sail-7.0:1.0
+``` 
+
+Apple Silicon
+
+```bash
+# Authenticate for your DockerHub account
+docker login
+
+# Prepare and Tag local image for the DockerHub repository.
+docker tag theodson/php-sail-7.0-arm64 theodson/php-sail-7.0:1.0-arm64
+
+# Push to Docker Hub
+docker push theodson/php-sail-7.0:1.0-arm64
 ```
