@@ -87,7 +87,7 @@ COPY functions /home/sail/bin/
 COPY start-container /usr/local/bin/start-container
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-RUN apt-get install -y php7.0-dev git pkg-config build-essential libmemcached-dev
+RUN apt-get install -y ripgrep redis-tools php7.0-dev git pkg-config build-essential libmemcached-dev
 RUN npm install -g bin && npm install -g npm
 
 RUN setcap "cap_net_bind_service=+ep" /usr/bin/php7.0
