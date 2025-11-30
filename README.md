@@ -19,12 +19,14 @@ Favour running Docker on Apple Silicon with [OrbStack](https://docs.orbstack.dev
 Uses **Ubuntu 24.04** based, support both amd64 and arm64 (Apple Silicon).
 - No repositories exist for older PHP versions.
 - Php 7.0, some extensions and OS libraries are compiled from source to be able to run on Ubuntu 24.04.
+- 
+- Based on [Laravel Sail 8.0 image (v1.48)](https://github.com/laravel/sail/blob/v1.48.0/runtimes/8.0/Dockerfile)
 
 
 ### v1.0 Ubuntu 20.04
 Uses the last **Ubuntu 20.04**–based Sail release (v1.38.0), adapted to PHP 7.0, only amd64.
 
-- Based on [Laravel Sail 8.0 image](https://github.com/laravel/sail/blob/v1.38.0/runtimes/8.0/Dockerfile)
+- Based on [Laravel Sail 8.0 image (v1.38)](https://github.com/laravel/sail/blob/v1.38.0/runtimes/8.0/Dockerfile)
 
 Important lifecycle notice
 
