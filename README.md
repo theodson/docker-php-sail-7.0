@@ -2,15 +2,16 @@
 
 # Laravel Sail PHP 7.0 — `php-sail-7.0`
 
-Sail provides a Docker powered local development experience for Laravel that is compatible with macOS, Windows (WSL2), and Linux. Other than Docker, no software or libraries are required to be installed on your local computer before using Sail.
+Sail provides a Docker powered local development experience for Laravel that is compatible with macOS, Windows (WSL2), and Linux. 
+Other than Docker, no software or libraries are required to be installed on your local computer before using Sail.
 
 This image is only partially compatible with Laravel Sail and serves only to provide PHP 7.0 support for those who need it for their older projects.
-It provides
 
-- a working Chromium installation for PDF generation compatible with `spatie/browsershow` / puppeteer using the [Playwright](https://playwright.dev/) library. 
+It provides a working Chromium installation for PDF generation compatible with `spatie/browsershow` / puppeteer using the [Playwright](https://playwright.dev/) library. 
 
 Docker Hub: https://hub.docker.com/r/theodson/php-sail-7.0/tags
 
+Favour running Docker on Apple Silicon with [OrbStack](https://docs.orbstack.dev/)
 
 ## Releases
 
@@ -163,4 +164,24 @@ ENV PLAYWRIGHT_REVISION="1.43.0"
 # Tell Puppeteer to skip installing Chrome. We'll be using the installed chrome from playwright.
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+```
+
+### Multi Architecture Builds
+
+Emulating other CPU architectures. 
+This is not installed in the base image but has been proven to work on OrbStack and the standard Chrome/Chromium AMD64 installations on Apple Silicon, albeit with some slight performance hits.
+A more detailed explanation can be found in the [OrbStack documentation](https://docs.orbstack.dev/machines/#emulating-other-cpu-architectures).
+
+[OrbStack](https://docs.orbstack.dev/machines/#emulating-other-cpu-architectures) can run 32-bit ARM (armhf), 64-bit ARM (aarch64), 32-bit Intel (i386), and 64-bit Intel (amd64) programs on both Apple Silicon and Intel Macs, as long as you have the appropriate libraries installed (or the program is statically linked).
+```bash
+# Alternative approach to investigate if the playwright install does not work.
+dpkg --add-architecture amd64
+
+printf "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse\n" >/etc/apt/sources.list.d/ubuntu-arm64.list &&
+  printf "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse\n" >>/etc/apt/sources.list.d/ubuntu-arm64.list &&
+  printf "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse\n" >>/etc/apt/sources.list.d/ubuntu-arm64.list
+
+# e.g. install amd64 libraries on arm64
+sudo apt update
+sudo apt install libc6:amd64
 ```
