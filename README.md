@@ -5,6 +5,9 @@
 Sail provides a Docker powered local development experience for Laravel that is compatible with macOS, Windows (WSL2), and Linux. Other than Docker, no software or libraries are required to be installed on your local computer before using Sail.
 
 This image is only partially compatible with Laravel Sail and serves only to provide PHP 7.0 support for those who need it for their older projects.
+It provides
+
+- a working Chromium installation for PDF generation compatible with `spatie/browsershow` / puppeteer using the [Playwright](https://playwright.dev/) library. 
 
 Docker Hub: https://hub.docker.com/r/theodson/php-sail-7.0/tags
 
@@ -133,4 +136,31 @@ docker manifest annotate theodson/php-sail-7.0:2.0 \
   theodson/php-sail-7.0:2.0-arm64 --arch arm64
 
 docker manifest push theodson/php-sail-7.0:2.0
+```
+
+## Notes
+
+### PDF Generation via `spatie/browsershow` / puppeteer / Chrome
+
+Most Laravel projects require PDF generation, typically via `spatie/browsershow` / puppeteer / Chrome.
+
+The largest hurdle has been finding a native ARM64 Chrome/Chroimum install to allow puppeteer to run on ARM64.
+
+**TLDR:** Chrome is not available for ARM64 directly but there are workarounds, see **Playwright** below. 
+
+#### Playwright
+The [Playwright library](https://playwright.dev/) is a great browser testing library and has Laravel 11+ support via the Pest testing framework.
+Unfortunately, projects requiring PHP 7.0 cannot directly use this Pest library for browser testing.
+
+The workaround is to use the **Playwright** library to install a native Chrome binary and use that for PDF generation.
+This is achieved by setting the following environment variables during the build and within your Laravel project's `.env` file:
+
+```dockerfile
+ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers
+ENV PLAYWRIGHT_CHROMIUM_REVISION="1106"
+ENV PLAYWRIGHT_REVISION="1.43.0"
+
+# Tell Puppeteer to skip installing Chrome. We'll be using the installed chrome from playwright.
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ```
