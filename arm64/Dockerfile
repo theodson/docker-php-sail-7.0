@@ -13,6 +13,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 ENV SUPERVISOR_PHP_COMMAND="/usr/bin/php -d variables_order=EGPCS /var/www/html/artisan serve --host=0.0.0.0 --port=80"
 ENV SUPERVISOR_PHP_USER="sail"
+# Ensure all TLS stacks can discover system CA bundle for HTTPS
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
@@ -94,6 +98,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src
+
+# Ensure ImageMagick can load modules and network delegates (HTTP/HTTPS/URL) if policy blocks them
+RUN if [ -f /etc/ImageMagick-6/policy.xml ]; then \
+      if grep -q 'domain="module"' /etc/ImageMagick-6/policy.xml; then \
+        sed -i 's#<policy domain="module" rights="none" pattern="\*"/>#<!-- module loading enabled by php-sail-7.0: was disabled by distro policy -->#' /etc/ImageMagick-6/policy.xml || true; \
+      fi; \
+      sed -i 's#<policy domain="delegate" rights="none" pattern="URL" />#<!-- URL delegate enabled by php-sail-7.0 for HTTPS reads -->#' /etc/ImageMagick-6/policy.xml || true; \
+      sed -i 's#<policy domain="delegate" rights="none" pattern="HTTPS" />#<!-- HTTPS delegate enabled by php-sail-7.0 for HTTPS reads -->#' /etc/ImageMagick-6/policy.xml || true; \
+      sed -i 's#<policy domain="delegate" rights="none" pattern="HTTP" />#<!-- HTTP delegate enabled by php-sail-7.0 for HTTPS reads -->#' /etc/ImageMagick-6/policy.xml || true; \
+    fi
 
 # Fix ICU incompatible version
 # Apply patch to ICU to remove xlocale.h
@@ -351,6 +365,13 @@ RUN set -euxo pipefail; \
     apt-get -y autoremove || true; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Final verification after cleanup that ImageMagick coders are present and PNG/HTTPS are supported
+RUN convert -version && \
+    convert -list format | grep -E '^PNG' && \
+    php7.0 -r 'echo in_array("PNG", (new Imagick())->queryFormats("PNG")) ? "PNG-OK" : exit(1);' && \
+    convert https://placehold.co/1x1.png -format %m info: | grep -q '^PNG$' && \
+    php7.0 -r '$i=new Imagick();$i->setOption("curl:verify-peer","true");$i->setOption("curl:verify-host","2");$i->readImage("https://placehold.co/1x1.png");echo $i->getImageFormat()==="PNG"?"PNG-HTTPS-OK":"";'
 
 #RUN cd $PLAYWRIGHT_BROWSERS_PATH \
 #  && wget https://playwright.azureedge.net/builds/chromium/$PLAYWRIGHT_CHROMIUM_REVISION/chromium-linux-arm64.zip -O chromium-linux-arm64.$PLAYWRIGHT_CHROMIUM_REVISION.zip \
