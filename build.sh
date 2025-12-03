@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # you may want to set the env DOCKERID="yourGitHubOrDockerHubId/"
 test -z "${DOCKERID}" && {
-  echo "set DOCKERID ENV"
+  echo "set DOCKERID ENV - should end with /"
   exit 1
 }
+[[ "${DOCKERID}" != */ ]] && DOCKERID="${DOCKERID}/"
 export PLATFORM="${PLATFORM:-$(uname -m)}" # arm64, amd64 or all
 export ACTION="${1:-build_$PLATFORM}" # build_arm64, build_amd64
 export IMAGE=${DOCKERID}php-sail-7.0
