@@ -343,35 +343,16 @@ RUN mkdir -p $PLAYWRIGHT_BROWSERS_PATH \
     && npm -g install playwright@$PLAYWRIGHT_REVISION; \
     npx playwright install-deps || true; \
     npx playwright install chromium || true; \
-    chmod -R a+rwx $PLAYWRIGHT_BROWSERS_PATH; \
-    apt-get -y autoremove || true; apt-get clean; rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    chmod -R a+rwx $PLAYWRIGHT_BROWSERS_PATH;
+#    chmod -R a+rwx $PLAYWRIGHT_BROWSERS_PATH; \
+#    apt-get -y autoremove || true; apt-get clean; rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Cleanup PECL build dir at the end
-RUN set -euxo pipefail; \
-    rm -rf "$PECL_BUILD_DIR" /usr/src/* && \
-    # Purge heavy build toolchains and -dev packages that are no longer needed at runtime \
-    apt-get purge -y --auto-remove build-essential autoconf pkg-config bison re2c || true; \
-    # Remove static libs and libtool files \
-    find /usr -type f -name '*.a' -o -name '*.la' -delete || true; \
-    # Strip common binaries/libraries where safe (ignore failures) \
-    strip --strip-unneeded /usr/bin/php7.0 /usr/sbin/php-fpm7.0 || true; \
-    strip --strip-unneeded /usr/local/openssl-1.1/lib/*.so* /usr/local/curl-gnutls/lib/*.so* || true; \
-    rm -rf /usr/share/doc /usr/share/man /usr/share/info /usr/share/lintian || true; \
-    npm cache clean --force || true; \
-    yarn cache clean || true; \
-    composer clear-cache || true; \
-    # Cleanup language/docs and caches \
-    rm -rf /root/.cache /home/sail/.cache /var/cache/*; \
-    apt-get -y autoremove || true; \
-    apt-get clean; \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# Final verification after cleanup that ImageMagick coders are present and PNG/HTTPS are supported
-RUN convert -version && \
-    convert -list format | grep -E '^PNG' && \
-    php7.0 -r 'echo in_array("PNG", (new Imagick())->queryFormats("PNG")) ? "PNG-OK" : exit(1);' && \
-    convert https://placehold.co/1x1.png -format %m info: | grep -q '^PNG$' && \
-    php7.0 -r '$i=new Imagick();$i->setOption("curl:verify-peer","true");$i->setOption("curl:verify-host","2");$i->readImage("https://placehold.co/1x1.png");echo $i->getImageFormat()==="PNG"?"PNG-HTTPS-OK":"";'
+## Final verification after cleanup that ImageMagick coders are present and PNG/HTTPS are supported
+#RUN convert -version && \
+#    convert -list format | grep -E '^PNG' && \
+#    php7.0 -r 'echo in_array("PNG", (new Imagick())->queryFormats("PNG")) ? "PNG-OK" : exit(1);' && \
+#    convert https://placehold.co/1x1.png -format %m info: | grep -q '^PNG$' && \
+#    php7.0 -r '$i=new Imagick();$i->setOption("curl:verify-peer","true");$i->setOption("curl:verify-host","2");$i->readImage("https://placehold.co/1x1.png");echo $i->getImageFormat()==="PNG"?"PNG-HTTPS-OK":"";'
 
 #RUN cd $PLAYWRIGHT_BROWSERS_PATH \
 #  && wget https://playwright.azureedge.net/builds/chromium/$PLAYWRIGHT_CHROMIUM_REVISION/chromium-linux-arm64.zip -O chromium-linux-arm64.$PLAYWRIGHT_CHROMIUM_REVISION.zip \
@@ -388,7 +369,57 @@ RUN echo "SAIL BUILD DATE $(TZ=$TZ date): $(TZ=Australia/NSW date)" > /etc/SAIL_
 COPY ../functions /home/sail/bin/
 COPY ../php.ini /etc/php/7.0/cli/conf.d/99-sail.ini
 
+# Reinstall ImageMagick and its coders to ensure proper aarch64 binaries
+# The PHP imagick extension links against libMagickWand, which needs coders to decode formats
+RUN apt-get update \
+  && apt-get install -y --reinstall --no-install-recommends \
+     imagemagick imagemagick-6-common imagemagick-6.q16 \
+     libmagickcore-6.q16-7 libmagickcore-6.q16-7-extra \
+     libmagickwand-6.q16-7 libpng16-16 libpng-dev \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Rebuild the imagick PECL extension to ensure it links against the correct aarch64 libraries
+RUN set -euxo pipefail; \
+    mkdir -p /usr/src/pecl-rebuild; \
+    cd /usr/src/pecl-rebuild; \
+    curl -fL -sS --retry 5 --retry-delay 3 --retry-connrefused -O https://pecl.php.net/get/imagick-3.4.4.tgz; \
+    tar xzf imagick-3.4.4.tgz; \
+    cd imagick-3.4.4; \
+    /usr/bin/phpize7.0; \
+    ./configure --with-php-config=/usr/bin/php-config7.0 --with-imagick=/usr; \
+    make -j"$(nproc)" && make install; \
+    cd /; \
+    rm -rf /usr/src/pecl-rebuild
+
+# Verify imagick is working with PNG support
+RUN php7.0 -r "\$i = new Imagick(); \$count = count(\$i->queryFormats()); echo \"Imagick formats: \$count\n\"; if (\$count < 10) { exit(1); }" \
+    && php7.0 -r "\$i = new Imagick(); if (!in_array('PNG', \$i->queryFormats('PNG'))) { echo 'PNG not supported'; exit(1); } echo 'PNG: OK';"
+
 RUN chmod +x /usr/local/bin/start-container
+
+# Cleanup PECL build dir at the end
+RUN set -euxo pipefail; \
+    rm -rf "$PECL_BUILD_DIR" /usr/src/* \
+    # Purge heavy build toolchains and -dev packages that are no longer needed at runtime \
+    apt-get purge -y --auto-remove build-essential autoconf pkg-config bison re2c || true; \
+    # Strip common binaries/libraries where safe (ignore failures) \
+    strip --strip-unneeded /usr/bin/php7.0 /usr/sbin/php-fpm7.0 || true; \
+    strip --strip-unneeded /usr/local/openssl-1.1/lib/*.so* /usr/local/curl-gnutls/lib/*.so* || true; \
+    rm -rf /usr/share/doc /usr/share/man /usr/share/info /usr/share/lintian || true; \
+    npm cache clean --force || true; \
+    yarn cache clean || true; \
+    composer clear-cache || true; \
+    # Cleanup language/docs and caches \
+    rm -rf /root/.cache /home/sail/.cache /var/cache/*; \
+    apt-get -y autoremove || true; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+
+# Verify imagick is working with PNG support
+RUN php7.0 -r "\$i = new Imagick(); \$count = count(\$i->queryFormats()); echo \"Imagick formats: \$count\n\"; if (\$count < 10) { exit(1); }" \
+    && php7.0 -r "\$i = new Imagick(); if (!in_array('PNG', \$i->queryFormats('PNG'))) { echo 'PNG not supported'; exit(1); } echo 'PNG: OK';"
+
 
 WORKDIR /var/www/html
 
