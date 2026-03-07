@@ -2,188 +2,143 @@
 
 # Laravel Sail PHP 7.0 — `php-sail-7.0`
 
-Sail provides a Docker powered local development experience for Laravel that is compatible with macOS, Windows (WSL2), and Linux. 
-Other than Docker, no software or libraries are required to be installed on your local computer before using Sail.
+`php-sail-7.0` provides a Docker-powered local development experience for legacy Laravel projects stuck on PHP 7.0. It is partially compatible with [Laravel Sail](https://github.com/laravel/sail) and is designed to run on macOS, Windows (WSL2), and Linux.
 
-This image is only partially compatible with Laravel Sail and serves only to provide PHP 7.0 support for those who need it for their older projects.
+## Overview
 
-It provides a working Chromium installation for PDF generation compatible with `spatie/browsershow` / puppeteer using the [Playwright](https://playwright.dev/) library. 
+This repository contains Dockerfiles and helper scripts for building a PHP 7.0 development image derived from Laravel Sail. It addresses the challenges of running older PHP versions on modern operating systems (like Ubuntu 24.04) and architectures (Apple Silicon/ARM64).
 
-Docker Hub: https://hub.docker.com/r/theodson/php-sail-7.0/tags
+### Stack
+- **PHP**: 7.0 (compiled from source for Ubuntu 24.04 compatibility in v2.0)
+- **Base OS**: Ubuntu 24.04 (v2.0+) or Ubuntu 20.04 (v1.0)
+- **Node.js**: v20 (default, configurable)
+- **Composer**: 2.2 (pinned for PHP 7.0 compatibility)
+- **Postgres**: 9.5 (default)
+- **Chromium/Playwright**: Included for PDF generation (compatible with `spatie/browsershot` / puppeteer)
+- **ImageMagick**: Supported with HTTPS delegates
+- **Supervisor**: Manages PHP and other services via `supervisord.conf`
 
-Favour running Docker on Apple Silicon with [OrbStack](https://docs.orbstack.dev/)
+## Requirements
+- **Docker**: 24.0+ with [Buildx](https://docs.docker.com/build/buildx/)
+- **OrbStack**: (Highly recommended for Apple Silicon/macOS) for better performance and emulation support.
+- **Docker Hub Account**: Required for pushing/publishing images.
 
-## Releases
+## Project Structure
+- `amd64/Dockerfile`: Baseline image for linux/amd64.
+- `arm64/Dockerfile`: Tailored image for Apple Silicon/arm64.
+- `build.sh`: Multi-platform builder script.
+- `build.amd64.sh` / `build.arm64.sh`: Convenience wrappers for single-arch builds.
+- `publish.sh`: Legacy script for single-arch tagging and pushing.
+- `functions`: Helper functions sourced in the container.
+- `start-container`: Entrypoint script for the Docker container.
+- `supervisord.conf`: Configuration for process management.
+- `php.ini`: Default PHP configuration.
+- `art/`: Repository assets (logos).
 
-### v2.0 Ubuntu 24.04
-Uses **Ubuntu 24.04** based, support both amd64 and arm64 (Apple Silicon).
-- No repositories exist for older PHP versions.
-- Php 7.0, some extensions and OS libraries are compiled from source to be able to run on Ubuntu 24.04.
-- 
-- Based on [Laravel Sail 8.0 image (v1.48)](https://github.com/laravel/sail/blob/v1.48.0/runtimes/8.0/Dockerfile)
+## Environment Variables
 
+### Build-time Variables
+| Variable | Description | Default       |
+| --- | --- |---------------|
+| `DOCKERID` | Docker Hub namespace (required for build scripts) | -             |
+| `PLATFORM` | Target architecture (`amd64`, `arm64`, or `all`) | `$(uname -m)` |
+| `TAG` | Image tag version | `2.1`         |
+| `WWWGROUP` | Host user group ID for file permissions | `$(id -g)`    |
+| `NODE_VERSION` | Node.js major version | `20`          |
+| `POSTGRES_VERSION`| PostgreSQL client version | `9.5`         |
 
-### v1.0 Ubuntu 20.04
-Uses the last **Ubuntu 20.04**–based Sail release (v1.38.0), adapted to PHP 7.0, only amd64.
-
-- Based on [Laravel Sail 8.0 image (v1.38)](https://github.com/laravel/sail/blob/v1.38.0/runtimes/8.0/Dockerfile)
-
-Important lifecycle notice
-
-- As of 2025‑07‑01, Ubuntu 20.04 and the `ppa:ondrej/php` hosting for older PHP versions are archived/EOL. Building from scratch can be fragile or fail depending on mirror availability. Prefer pulling the prebuilt images from Docker Hub.
+### Runtime Variables
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WWWUSER` | Runtime user ID mapping | - |
+| `SUPERVISOR_PHP_USER`| User to run PHP processes (`sail` or `root`) | `sail` |
 
 ## Usage
 
-**Quick start**: pull prebuilt images
+### Quick Start: Pull Prebuilt Images
+Docker Hub: [theodson/php-sail-7.0](https://hub.docker.com/r/theodson/php-sail-7.0/tags)
 
 ```bash
-#
-# v2+ - supports multi-architecture builds 
-#       it automatically pulls to correct architecture for your platform
+# v2+ (Multi-arch)
+docker pull theodson/php-sail-7.0:2.1
 
-docker pull theodson/php-sail-7.0:2.0
-```
-
-```bash
-#
-# v1
-#
+# v1 (Single-arch)
 docker pull theodson/php-sail-7.0:1.0        # amd64
 docker pull theodson/php-sail-7.0:1.0-arm64  # arm64
 ```
 
-## Build
-
-**Repository layout**
-
-- `amd64/Dockerfile` — baseline Dockerfile for linux/amd64
-- `arm64/Dockerfile` — Apple Silicon/ARM64–tailored Dockerfile
-- `build.sh` — multiplatform builder using Docker Buildx; see usage below
-- `build.amd64.sh`, `build.arm64.sh` — convenience wrappers that set platform and `DOCKERID`
-- Runtime helpers: `functions`, `start-container`, `supervisord.conf`, `php.ini`, `postgresql/postgresql-9.5.list`
-
-**Notes**
-
-- Composer is pinned to 2.2 for PHP 7.0 compatibility.
-- The Dockerfiles use EOL/archived apt sources and ppa; builds may fail due to mirror/key rotation and availability.
-
-**Prerequisites** 
- 
-- Docker 24+ with Buildx 
-- logged in to Docker Hub if pushing.
-
-**Build locally** (when archives are reachable)
-
-Build both architectures, create a manifest and publish to Docker Hub with `build.sh`:
-
->  Note: building for a different architecture is supported regardless of the host/build machines architevture/platform.
+### Running Locally
+Typically integrated via `docker-compose.yml`. For a quick test:
 
 ```bash
-# Optional: override defaults
-export DOCKERID="theodson" # your Docker Hub namespace
+docker run -it --rm \
+  -v $(pwd):/var/www/html \
+  -e WWWUSER=$(id -u) \
+  -p :80 \
+  theodson/php-sail-7.0:2.1 \
+  bash
+```
+Or when building a specific architecture 
+```bash
+docker run -it --rm \
+  -v $(pwd):/var/www/html \
+  -e WWWUSER=$(id -u) \
+  -p :80 \
+  theodson/php-sail-7.0:2.1-arm64 \
+  bash
+```
+
+## Scripts & Development
+
+- `build.sh`: The primary script for building images. Supports `build`, `push`, and `publish` (manifest) actions.
+- `build.amd64.sh` / `build.arm64.sh`: Shortcuts to build and push for a specific architecture.
+- `publish.sh`: Simple script to tag and push `php-sail-7.0` to a custom version on Docker Hub.
+
+### Multi-Architecture Build
+Build both architectures, create a manifest, and publish to Docker Hub:
+
+```bash
+export DOCKERID="your-namespace"
 export TAG=2.1
-export NODE_VERSION=20
 
-# Authenticate for your Docker Hub account
-docker login
-
-# Build both architectures (pushes images tagged with :${TAG}-amd64 and :${TAG}-arm64)
-./build.sh build
-./build.sh push
-./build.sh publish
+./build.sh build    # Builds both amd64 and arm64
+./build.sh push     # Pushes individual images
+./build.sh publish  # Creates and pushes the multi-arch manifest
 ```
 
+## Testing
+- **TODO**: Add automated runtime tests (e.g., verifying PHP version and extensions inside the container).
+- **Static Checks**: Validate script syntax:
+  ```bash
+  bash -n build.sh build.amd64.sh build.arm64.sh
+  ```
 
-Set your Docker Hub namespace and run a single-arch build:
+## Releases
+
+### v2.0 (Ubuntu 24.04 Noble)
+- Supports both **amd64** and **arm64**.
+- PHP 7.0 and extensions are compiled from source as Noble lacks native PHP 7.0 repositories.
+- Based on [Laravel Sail 8.0 image (v1.48)](https://github.com/laravel/sail/blob/v1.48.0/runtimes/8.0/Dockerfile).
+
+### v1.0 (Ubuntu 20.04 Focal)
+- Based on [Laravel Sail 8.0 image (v1.38)](https://github.com/laravel/sail/blob/v1.38.0/runtimes/8.0/Dockerfile).
+- **Notice**: As of 2025-07-01, Ubuntu 20.04 and `ppa:ondrej/php` are EOL. Builds may be unstable; prefer prebuilt images.
+
+## Technical Notes
+
+### PDF Generation (Chromium & Playwright)
+Finding a native ARM64 Chromium for puppeteer on legacy PHP is challenging. This image uses **Playwright** to install a native binary. Ensure these variables are set in your `.env`:
 
 ```bash
-export DOCKERID="yourname/"
-# explicitly set the platform to linux/amd64
-./build.amd64.sh   # builds and pushes linux/amd64 using amd64/Dockerfile
-
-# explicitly set the platform to linux/amd64
-./build.arm64.sh   # builds and pushes linux/arm64 using arm64/Dockerfile
-
-# automatically set the platform to the host architecture
-./build.sh   # builds and pushes linux/arm64 using arm64/Dockerfile
+PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers
+PLAYWRIGHT_CHROMIUM_REVISION="1106"
+PLAYWRIGHT_REVISION="1.43.0"
+PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ```
 
+### Multi-Architecture Emulation
+OrbStack supports emulating other architectures (e.g., running amd64 programs on Apple Silicon). If the Playwright approach fails, you might explore adding foreign architectures via `dpkg --add-architecture amd64`.
 
-## Publish
-Publishing the built images to Docker Hub
-
-```bash
-# Optional: override defaults
-
-# Authenticate for your Docker Hub account
-docker login
-
-# Assuming images are built and pushed (see previous examples)
-./build.sh publish
-```
-
-
-```bash
-#
-# the publish argument generates these commands (based on ENV) 
-# publishing look like this
-#
-docker manifest create theodson/php-sail-7.0:2.0 \
-  --amend theodson/php-sail-7.0:2.0-amd64 \
-  --amend theodson/php-sail-7.0:2.0-arm64
-
-docker manifest annotate theodson/php-sail-7.0:2.0 \
-  theodson/php-sail-7.0:2.0-amd64 --arch amd64
-
-docker manifest annotate theodson/php-sail-7.0:2.0 \
-  theodson/php-sail-7.0:2.0-arm64 --arch arm64
-
-docker manifest push theodson/php-sail-7.0:2.0
-```
-
-## Notes
-
-### PDF Generation via `spatie/browsershow` / puppeteer / Chrome
-
-Most Laravel projects require PDF generation, typically via `spatie/browsershow` / puppeteer / Chrome.
-
-The largest hurdle has been finding a native ARM64 Chrome/Chroimum install to allow puppeteer to run on ARM64.
-
-**TLDR:** Chrome is not available for ARM64 directly but there are workarounds, see **Playwright** below. 
-
-#### Playwright
-The [Playwright library](https://playwright.dev/) is a great browser testing library and has Laravel 11+ support via the Pest testing framework.
-Unfortunately, projects requiring PHP 7.0 cannot directly use this Pest library for browser testing.
-
-The workaround is to use the **Playwright** library to install a native Chrome binary and use that for PDF generation.
-This is achieved by setting the following environment variables during the build and within your Laravel project's `.env` file:
-
-```dockerfile
-ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers
-ENV PLAYWRIGHT_CHROMIUM_REVISION="1106"
-ENV PLAYWRIGHT_REVISION="1.43.0"
-
-# Tell Puppeteer to skip installing Chrome. We'll be using the installed chrome from playwright.
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-```
-
-### Multi Architecture Builds
-
-Emulating other CPU architectures. 
-This is not installed in the base image but has been proven to work on OrbStack and the standard Chrome/Chromium AMD64 installations on Apple Silicon, albeit with some slight performance hits.
-A more detailed explanation can be found in the [OrbStack documentation](https://docs.orbstack.dev/machines/#emulating-other-cpu-architectures).
-
-[OrbStack](https://docs.orbstack.dev/machines/#emulating-other-cpu-architectures) can run 32-bit ARM (armhf), 64-bit ARM (aarch64), 32-bit Intel (i386), and 64-bit Intel (amd64) programs on both Apple Silicon and Intel Macs, as long as you have the appropriate libraries installed (or the program is statically linked).
-```bash
-# Alternative approach to investigate if the playwright install does not work.
-dpkg --add-architecture amd64
-
-printf "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse\n" >/etc/apt/sources.list.d/ubuntu-arm64.list &&
-  printf "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse\n" >>/etc/apt/sources.list.d/ubuntu-arm64.list &&
-  printf "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse\n" >>/etc/apt/sources.list.d/ubuntu-arm64.list
-
-# e.g. install amd64 libraries on arm64
-sudo apt update
-sudo apt install libc6:amd64
-```
+## License
+This project is open-sourced software licensed under the [MIT license](LICENSE).
