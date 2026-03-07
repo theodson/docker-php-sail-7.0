@@ -8,7 +8,7 @@ test -z "${DOCKERID}" && {
 export PLATFORM="${PLATFORM:-$(uname -m)}" # arm64, amd64 or all
 export ACTION="${1:-build_$PLATFORM}" # build_arm64, build_amd64
 export IMAGE=${DOCKERID}php-sail-7.0
-export TAG="${TAG:-2.0}"
+export TAG="${TAG:-2.1}"
 export IMAGE_TAG="${IMAGE}:${TAG}-${PLATFORM}"
 
 export WWWGROUP=${WWWGROUP:-$(id -g)}
@@ -21,10 +21,10 @@ test -z "${WWWGROUP}" && {
 
 function build_arm64() {
   # Build arm64 from the arm64-tailored Dockerfile
+  # --progress=plain for debugging/reviewing output
   info
   local local_tag="${IMAGE}:${TAG}-arm64"
   docker buildx build \
-    --progress=plain \
     --platform linux/arm64 \
     --build-arg WWWGROUP=${WWWGROUP} \
     --build-arg NODE_VERSION=${NODE_VERSION} \

@@ -362,8 +362,7 @@ RUN mkdir -p $PLAYWRIGHT_BROWSERS_PATH \
 #   npm -g install playwright@1.43.0 installs chromium build 1112 is installed. https://playwright-akamai.azureedge.net/builds/chromium/1112/chromium-linux-arm64.zip
 
 
-RUN echo "SAIL BUILD DATE $(TZ=$TZ date): $(TZ=Australia/NSW date)" > /etc/SAIL_BUILD; \
-    ln -snf $PLAYWRIGHT_BROWSERS_PATH/chromium-*/chrome-linux/chrome /usr/bin/chromium; \
+RUN ln -snf $PLAYWRIGHT_BROWSERS_PATH/chromium-*/chrome-linux/chrome /usr/bin/chromium; \
     chmod +x /usr/local/bin/start-container
 
 COPY ../functions /home/sail/bin/
@@ -395,8 +394,6 @@ RUN set -euxo pipefail; \
 RUN php7.0 -r "\$i = new Imagick(); \$count = count(\$i->queryFormats()); echo \"Imagick formats: \$count\n\"; if (\$count < 10) { exit(1); }" \
     && php7.0 -r "\$i = new Imagick(); if (!in_array('PNG', \$i->queryFormats('PNG'))) { echo 'PNG not supported'; exit(1); } echo 'PNG: OK';"
 
-RUN chmod +x /usr/local/bin/start-container
-
 # Cleanup PECL build dir at the end
 RUN set -euxo pipefail; \
     rm -rf "$PECL_BUILD_DIR" /usr/src/* \
@@ -415,11 +412,16 @@ RUN set -euxo pipefail; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-
 # Verify imagick is working with PNG support
 RUN php7.0 -r "\$i = new Imagick(); \$count = count(\$i->queryFormats()); echo \"Imagick formats: \$count\n\"; if (\$count < 10) { exit(1); }" \
     && php7.0 -r "\$i = new Imagick(); if (!in_array('PNG', \$i->queryFormats('PNG'))) { echo 'PNG not supported'; exit(1); } echo 'PNG: OK';"
 
+RUN chmod +x /usr/local/bin/start-container
+
+COPY ../functions /home/sail/bin/
+COPY ../php.ini /etc/php/7.0/cli/conf.d/99-sail.ini
+
+RUN echo "SAIL BUILD DATE $(TZ=$TZ date): $(TZ=Australia/NSW date)" > /etc/SAIL_BUILD;
 
 WORKDIR /var/www/html
 
