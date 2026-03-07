@@ -24,6 +24,7 @@ function build_arm64() {
   info
   local local_tag="${IMAGE}:${TAG}-arm64"
   docker buildx build \
+    --progress=plain \
     --platform linux/arm64 \
     --build-arg WWWGROUP=${WWWGROUP} \
     --build-arg NODE_VERSION=${NODE_VERSION} \
@@ -147,7 +148,7 @@ case "${ACTION}" in
   publish
   ;;
 esac
-echo Finished Docker build using buildx, tagged with
+echo Finished Docker build using buildx, tagged with $TAG
 
 exit
 
