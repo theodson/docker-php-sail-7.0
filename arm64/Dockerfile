@@ -388,13 +388,16 @@ RUN set -euxo pipefail; \
     # Cleanup: remove build artifacts, dev packages, caches \
     rm -rf /usr/src/pecl-rebuild "$PECL_BUILD_DIR" /usr/src/*; \
     # Purge heavy build toolchains and -dev packages that are no longer needed at runtime \
-    apt-get purge -y --auto-remove \
+    # Note: Do NOT use --auto-remove here as it removes runtime libs needed by PHP extensions \
+    apt-get purge -y \
         build-essential autoconf pkg-config bison re2c \
         libxml2-dev libssl-dev libsqlite3-dev libbz2-dev libgmp-dev libpq-dev \
         libjpeg-dev libpng-dev libwebp-dev libfreetype6-dev libzip-dev \
         libreadline-dev libxslt1-dev libyaml-dev libmagickwand-6.q16-dev \
         libsodium-dev libssh2-1-dev libgettextpo-dev zlib1g-dev libbison-dev \
         libgnutls28-dev nettle-dev libidn2-0-dev libpsl-dev libbrotli-dev || true; \
+    # Reinstall runtime libraries that PHP extensions depend on (may have been removed) \
+    apt-get install -y --no-install-recommends libssh2-1 libyaml-0-2 || true; \
     # Strip common binaries/libraries where safe (ignore failures) \
     strip --strip-unneeded /usr/bin/php7.0 /usr/sbin/php-fpm7.0 || true; \
     strip --strip-unneeded /usr/local/openssl-1.1/lib/*.so* /usr/local/curl-gnutls/lib/*.so* || true; \
