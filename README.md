@@ -140,5 +140,54 @@ PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ### Multi-Architecture Emulation
 OrbStack supports emulating other architectures (e.g., running amd64 programs on Apple Silicon). If the Playwright approach fails, you might explore adding foreign architectures via `dpkg --add-architecture amd64`.
 
+
+## Buildx Cache FAQ
+Docker buildx uses a separate build cache from the regular Docker image store. This is why you're seeing this behavior.
+Where Images Are Stored
+1. **Regular Docker images** (docker images): Stored in Docker's local image store
+2. **Buildx cache**: Stored in the buildx builder instance (often a separate container or driver)
+
+### Why Your Images Appear After "Deletion"
+When you use docker `buildx build --load`, the image is:
+- Built inside the buildx builder
+- Then loaded into the local Docker image store
+
+When you use docker `buildx build --push`, the image is:
+- Built inside the buildx builder
+- Pushed directly to the registry
+- **NOT automatically loaded into local Docker images**
+
+However, the **buildx build cache persists** in the builder. So when you run a command that needs the image, buildx can quickly reconstruct it from cache without downloading.
+### To Fully Clear Buildx Cache
+
+```
+# List buildx builders
+docker buildx ls
+```
+
+```
+# Remove buildx cache for the current builder
+docker buildx prune
+```
+
+```
+# Or remove ALL buildx cache (more aggressive)
+docker buildx prune -a
+```
+
+```
+docker builder prune -a
+# To also clear regular Docker build cache
+```
+
+### To See What's in Buildx Cache
+```
+docker buildx du
+```
+
+### Summary
+Your `docker images | grep sail` shows the local image store, but buildx maintains its own cache. 
+That's why images rebuild instantly—they're cached in the buildx builder, not downloaded from Docker Hub.
+
 ## License
 This project is open-sourced software licensed under the [MIT license](LICENSE).
