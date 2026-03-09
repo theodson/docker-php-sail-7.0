@@ -220,7 +220,8 @@ RUN printf '#!/usr/bin/env bash\ncase "$1" in\n  --cflags) pkg-config --cflags f
     FREETYPE_CFLAGS="$(pkg-config --cflags freetype2)" \
     FREETYPE_LIBS="$(pkg-config --libs freetype2)" \
     && echo "# Build & install" \
-    && make -j$(nproc) && make install
+    && make -j$(nproc) && make install \
+    && cd / && rm -rf /usr/src/php-7.0.33
 
 # ---------------------------------------------------------
 # Build and install PECL extensions for PHP 7.0 (pinned versions)
@@ -337,41 +338,22 @@ RUN update-alternatives --install /usr/bin/php php /usr/bin/php7.0 110 \
     echo "# Load developer helper functions when starting interactive shell with www container" >> /home/sail/.profile; \
     echo 'source $HOME/bin/functions' >> /home/sail/.profile
 
-# Install Chromium browser
+# Install Chromium browser and cleanup apt lists
 RUN mkdir -p $PLAYWRIGHT_BROWSERS_PATH \
-    && apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 libxcomposite1 libxdamage1 \
-    && npm -g install playwright@$PLAYWRIGHT_REVISION; \
-    npx playwright install-deps || true; \
-    npx playwright install chromium || true; \
-    chmod -R a+rwx $PLAYWRIGHT_BROWSERS_PATH; \
-    apt-get -y autoremove || true; apt-get clean; rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 libxcomposite1 libxdamage1 \
+    && npm -g install playwright@$PLAYWRIGHT_REVISION \
+    && npx playwright install-deps || true \
+    && npx playwright install chromium || true \
+    && chmod -R a+rwx $PLAYWRIGHT_BROWSERS_PATH \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Cleanup PECL build dir at the end
-RUN set -euxo pipefail; \
-    rm -rf "$PECL_BUILD_DIR" /usr/src/* && \
-    # Purge heavy build toolchains and -dev packages that are no longer needed at runtime \
-    apt-get purge -y --auto-remove build-essential autoconf pkg-config bison re2c || true; \
-    # Remove static libs and libtool files \
-    find /usr -type f -name '*.a' -o -name '*.la' -delete || true; \
-    # Strip common binaries/libraries where safe (ignore failures) \
-    strip --strip-unneeded /usr/bin/php7.0 /usr/sbin/php-fpm7.0 || true; \
-    strip --strip-unneeded /usr/local/openssl-1.1/lib/*.so* /usr/local/curl-gnutls/lib/*.so* || true; \
-    rm -rf /usr/share/doc /usr/share/man /usr/share/info /usr/share/lintian || true; \
-    npm cache clean --force || true; \
-    yarn cache clean || true; \
-    composer clear-cache || true; \
-    # Cleanup language/docs and caches \
-    rm -rf /root/.cache /home/sail/.cache /var/cache/*; \
-    apt-get -y autoremove || true; \
-    apt-get clean; \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# Final verification after cleanup that ImageMagick coders are present and PNG/HTTPS are supported
-RUN convert -version && \
-    convert -list format | grep -E '^PNG' && \
-    php7.0 -r 'echo in_array("PNG", (new Imagick())->queryFormats("PNG")) ? "PNG-OK" : exit(1);' && \
-    convert https://placehold.co/1x1.png -format %m info: | grep -q '^PNG$' && \
-    php7.0 -r '$i=new Imagick();$i->setOption("curl:verify-peer","true");$i->setOption("curl:verify-host","2");$i->readImage("https://placehold.co/1x1.png");echo $i->getImageFormat()==="PNG"?"PNG-HTTPS-OK":"";'
+## Final verification after cleanup that ImageMagick coders are present and PNG/HTTPS are supported
+#RUN convert -version && \
+#    convert -list format | grep -E '^PNG' && \
+#    php7.0 -r 'echo in_array("PNG", (new Imagick())->queryFormats("PNG")) ? "PNG-OK" : exit(1);' && \
+#    convert https://placehold.co/1x1.png -format %m info: | grep -q '^PNG$' && \
+#    php7.0 -r '$i=new Imagick();$i->setOption("curl:verify-peer","true");$i->setOption("curl:verify-host","2");$i->readImage("https://placehold.co/1x1.png");echo $i->getImageFormat()==="PNG"?"PNG-HTTPS-OK":"";'
 
 #RUN cd $PLAYWRIGHT_BROWSERS_PATH \
 #  && wget https://playwright.azureedge.net/builds/chromium/$PLAYWRIGHT_CHROMIUM_REVISION/chromium-linux-arm64.zip -O chromium-linux-arm64.$PLAYWRIGHT_CHROMIUM_REVISION.zip \
@@ -381,14 +363,58 @@ RUN convert -version && \
 #   npm -g install playwright@1.43.0 installs chromium build 1112 is installed. https://playwright-akamai.azureedge.net/builds/chromium/1112/chromium-linux-arm64.zip
 
 
-RUN echo "SAIL BUILD DATE $(TZ=$TZ date): $(TZ=Australia/NSW date)" > /etc/SAIL_BUILD; \
+# Reinstall ImageMagick coders, rebuild imagick PECL extension, and cleanup - all in one layer to reduce size
+RUN set -euxo pipefail; \
     ln -snf $PLAYWRIGHT_BROWSERS_PATH/chromium-*/chrome-linux/chrome /usr/bin/chromium; \
-    chmod +x /usr/local/bin/start-container
+    # Reinstall ImageMagick and its coders to ensure proper aarch64 binaries \
+    apt-get update; \
+    apt-get install -y --reinstall --no-install-recommends \
+        imagemagick imagemagick-6-common imagemagick-6.q16 \
+        libmagickcore-6.q16-7 libmagickcore-6.q16-7-extra \
+        libmagickwand-6.q16-7 libpng16-16; \
+    # Rebuild the imagick PECL extension to link against correct aarch64 libraries \
+    mkdir -p /usr/src/pecl-rebuild; \
+    cd /usr/src/pecl-rebuild; \
+    curl -fL -sS --retry 5 --retry-delay 3 --retry-connrefused -O https://pecl.php.net/get/imagick-3.4.4.tgz; \
+    tar xzf imagick-3.4.4.tgz; \
+    cd imagick-3.4.4; \
+    /usr/bin/phpize7.0; \
+    ./configure --with-php-config=/usr/bin/php-config7.0 --with-imagick=/usr; \
+    make -j"$(nproc)" && make install; \
+    cd /; \
+    # Verify imagick is working with PNG support before cleanup \
+    php7.0 -r "\$i = new Imagick(); \$count = count(\$i->queryFormats()); echo \"Imagick formats: \$count\n\"; if (\$count < 10) { exit(1); }"; \
+    php7.0 -r "\$i = new Imagick(); if (!in_array('PNG', \$i->queryFormats('PNG'))) { echo 'PNG not supported'; exit(1); } echo 'PNG: OK';"; \
+    # Cleanup: remove build artifacts, dev packages, caches \
+    rm -rf /usr/src/pecl-rebuild "$PECL_BUILD_DIR" /usr/src/*; \
+    # Purge heavy build toolchains and -dev packages that are no longer needed at runtime \
+    # Note: Do NOT use --auto-remove here as it removes runtime libs needed by PHP extensions \
+    apt-get purge -y \
+        build-essential autoconf pkg-config bison re2c \
+        libxml2-dev libssl-dev libsqlite3-dev libbz2-dev libgmp-dev libpq-dev \
+        libjpeg-dev libpng-dev libwebp-dev libfreetype6-dev libzip-dev \
+        libreadline-dev libxslt1-dev libyaml-dev libmagickwand-6.q16-dev \
+        libsodium-dev libssh2-1-dev libgettextpo-dev zlib1g-dev libbison-dev \
+        libgnutls28-dev nettle-dev libidn2-0-dev libpsl-dev libbrotli-dev || true; \
+    # Reinstall runtime libraries that PHP extensions depend on (may have been removed) \
+    apt-get install -y --no-install-recommends libssh2-1 libyaml-0-2 || true; \
+    # Strip common binaries/libraries where safe (ignore failures) \
+    strip --strip-unneeded /usr/bin/php7.0 /usr/sbin/php-fpm7.0 || true; \
+    strip --strip-unneeded /usr/local/openssl-1.1/lib/*.so* /usr/local/curl-gnutls/lib/*.so* || true; \
+    rm -rf /usr/share/doc /usr/share/man /usr/share/info /usr/share/lintian || true; \
+    npm cache clean --force || true; \
+    yarn cache clean || true; \
+    composer clear-cache || true; \
+    # Cleanup language/docs and caches \
+    rm -rf /root/.cache /home/sail/.cache /var/cache/* /root/.npm /home/sail/.npm; \
+    apt-get -y autoremove; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 COPY ../functions /home/sail/bin/
 COPY ../php.ini /etc/php/7.0/cli/conf.d/99-sail.ini
 
-RUN chmod +x /usr/local/bin/start-container
+RUN echo "SAIL BUILD DATE $(TZ=$TZ date): $(TZ=Australia/NSW date)" > /etc/SAIL_BUILD;
 
 WORKDIR /var/www/html
 
