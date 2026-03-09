@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # you may want to set the env DOCKERID="yourGitHubOrDockerHubId/"
 test -z "${DOCKERID}" && {
-  echo "set DOCKERID ENV"
+  echo "set DOCKERID ENV - should end with /"
   exit 1
 }
+[[ "${DOCKERID}" != */ ]] && DOCKERID="${DOCKERID}/"
 export PLATFORM="${PLATFORM:-$(uname -m)}" # arm64, amd64 or all
 export ACTION="${1:-build_$PLATFORM}" # build_arm64, build_amd64
 export IMAGE=${DOCKERID}php-sail-7.0
-export TAG="${TAG:-2.0}"
+export TAG="${TAG:-2.1}"
 export IMAGE_TAG="${IMAGE}:${TAG}-${PLATFORM}"
 
 export WWWGROUP=${WWWGROUP:-$(id -g)}
@@ -20,8 +21,9 @@ test -z "${WWWGROUP}" && {
 
 function build_arm64() {
   # Build arm64 from the arm64-tailored Dockerfile
-  info
+  # --progress=plain for debugging/reviewing output
   local local_tag="${IMAGE}:${TAG}-arm64"
+  info "${FUNCNAME[0]}" "arm64" "$local_tag"
   docker buildx build \
     --platform linux/arm64 \
     --build-arg WWWGROUP=${WWWGROUP} \
@@ -37,7 +39,7 @@ function build_arm64_debug() {
   # PHP_DEBUG='--enable-debug' to build php debug symbols use gdb for tracing SegFault, etc
   export TAG="${TAG}_DBG"
   export IMAGE_TAG="${IMAGE}:${TAG}-${PLATFORM}"
-  info
+  info "${FUNCNAME[0]}" "arm64" "$IMAGE_TAG"
   docker buildx build \
     --platform linux/arm64 \
     --build-arg PHP_DEBUG='--enable-debug' \
@@ -51,8 +53,9 @@ function build_arm64_debug() {
 
 function build_amd64() {
   # Build amd64 from baseline Dockerfile
-  info
+  # --progress=plain for debugging/reviewing output
   local local_tag="${IMAGE}:${TAG}-amd64"
+  info "${FUNCNAME[0]}" "amd64" "$local_tag"
   docker buildx build \
     --platform linux/amd64 \
     --build-arg WWWGROUP=${WWWGROUP} \
@@ -65,8 +68,8 @@ function build_amd64() {
 
 function push_arm64() {
   # Push a prebuilt arm64 from the arm64-tailored Dockerfile
-  info
   local local_tag="${IMAGE}:${TAG}-arm64"
+  info "${FUNCNAME[0]}" "arm64" "$local_tag"
   docker buildx build \
     --platform linux/arm64 \
     --build-arg WWWGROUP=${WWWGROUP} \
@@ -80,8 +83,8 @@ function push_arm64() {
 
 function push_amd64() {
   # Push a prebuilt amd64 from the amd64 Dockerfile
-  info
   local local_tag="${IMAGE}:${TAG}-amd64"
+  info "${FUNCNAME[0]}" "amd64" "$local_tag"
   docker buildx build \
     --platform linux/amd64 \
     --build-arg WWWGROUP=${WWWGROUP} \
@@ -106,12 +109,15 @@ function publish() {
 }
 
 function info() {
+  local action="$1"
+  local platform="$2"
+  local imagetag="$3"
   cat <<CONF
-ACTION=$ACTION
-PLATFORM=$PLATFORM
+ACTION=$action
+PLATFORM=$platform
 IMAGE=$IMAGE
 TAG=$TAG
-IMAGE_TAG=$IMAGE_TAG
+IMAGE_TAG=$imagetag
 WWWGROUP=$WWWGROUP
 NODE_VERSION=$NODE_VERSION
 CONF
@@ -146,7 +152,7 @@ case "${ACTION}" in
   publish
   ;;
 esac
-echo Finished Docker build using buildx, tagged with
+echo Finished Docker build using buildx, tagged with $TAG
 
 exit
 

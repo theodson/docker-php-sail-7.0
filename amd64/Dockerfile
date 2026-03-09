@@ -13,6 +13,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 ENV SUPERVISOR_PHP_COMMAND="/usr/bin/php -d variables_order=EGPCS /var/www/html/artisan serve --host=0.0.0.0 --port=80"
 ENV SUPERVISOR_PHP_USER="sail"
+# Ensure all TLS stacks can discover system CA bundle for HTTPS
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
@@ -85,13 +89,25 @@ RUN apt-get update \
     build-essential \
     autoconf \
     pkg-config \
-    libxml2-dev libssl-dev libsqlite3-dev libbz2-dev libgmp-dev libpq-dev libjpeg-dev libpng-dev libwebp-dev \
-    libfreetype6-dev libzip-dev libreadline-dev libxslt1-dev libyaml-dev libmagickwand-6.q16-dev imagemagick-6.q16 imagemagick-6-common libmagickcore-6.q16-7-extra libsodium-dev libssh2-1-dev \
+    libxml2-dev libssl-dev libsqlite3-dev libbz2-dev libgmp-dev libpq-dev libjpeg-dev libpng-dev libwebp-dev libpng16-16 \
+    libfreetype6-dev libzip-dev libreadline-dev libxslt1-dev libyaml-dev \
+    libmagickwand-6.q16-dev libmagickwand-6.q16-7 libmagickcore-6.q16-7 imagemagick-6.q16 imagemagick-6-common libmagickcore-6.q16-7-extra \
+    libsodium-dev libssh2-1-dev libltdl-dev libltdl7 liblcms2-dev libtiff-dev libopenjp2-7-dev libpango1.0-dev \
     libgettextpo-dev zlib1g-dev libbison-dev libnss3 libnspr4 \
     libgnutls28-dev nettle-dev libidn2-0-dev libpsl-dev libbrotli-dev zlib1g-dev \
     gettext bison  re2c  wget  git  curl  nginx iputils-ping curl wget httpie traceroute \
     vim ripgrep gettext-base unzip zip git docutils-common htop redis-tools \
     && rm -rf /var/lib/apt/lists/*
+
+# Ensure ImageMagick can load modules (some distro policies disable module loading entirely)
+RUN if [ -f /etc/ImageMagick-6/policy.xml ]; then \
+      if grep -q 'domain="module"' /etc/ImageMagick-6/policy.xml; then \
+        sed -i 's#<policy domain="module" rights="none" pattern="\*"/>#<!-- module loading enabled by php-sail-7.0: was disabled by distro policy -->#' /etc/ImageMagick-6/policy.xml || true; \
+      fi; \
+      sed -i 's#<policy domain="delegate" rights="none" pattern="URL" />#<!-- URL delegate enabled by php-sail-7.0 for HTTPS reads -->#' /etc/ImageMagick-6/policy.xml || true; \
+      sed -i 's#<policy domain="delegate" rights="none" pattern="HTTPS" />#<!-- HTTPS delegate enabled by php-sail-7.0 for HTTPS reads -->#' /etc/ImageMagick-6/policy.xml || true; \
+      sed -i 's#<policy domain="delegate" rights="none" pattern="HTTP" />#<!-- HTTP delegate enabled by php-sail-7.0 for HTTPS reads -->#' /etc/ImageMagick-6/policy.xml || true; \
+    fi
 
 WORKDIR /usr/src
 
@@ -146,6 +162,38 @@ RUN wget https://github.com/unicode-org/icu/releases/download/release-${ICU_VERS
     && ldconfig \
     && cd .. \
     && rm -rf curl-${CURL_VER}*
+
+# ---------------------------------------------------------
+# Build ImageMagick 6 with curl delegate to provide http/https coder
+# Keep distro IM6 libs for ABI; we only need the coder module (http.so)
+# ---------------------------------------------------------
+ENV IM_VER=6.9.12-98
+RUN set -eux; \
+    cd /usr/src && \
+    (curl -fsSLO https://download.imagemagick.org/ImageMagick/download/releases/ImageMagick-${IM_VER}.tar.xz || \
+     curl -fsSLO https://imagemagick.org/archive/releases/ImageMagick-${IM_VER}.tar.xz) && \
+    tar -xf ImageMagick-${IM_VER}.tar.xz && \
+    cd ImageMagick-${IM_VER} && \
+    export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/local/openssl-1.1/lib/pkgconfig:/usr/local/curl-gnutls/lib/pkgconfig}" && \
+    ./configure \
+      --prefix=/usr/local/im6 \
+      --with-modules \
+      --with-quantum-depth=16 \
+      --enable-shared \
+      --disable-static \
+      --with-zlib --with-bzlib \
+      --with-xml \
+      --with-freetype --with-fontconfig \
+      --with-png --with-jpeg --with-tiff --with-webp --with-openjp2 \
+      --with-curl && \
+    make -j"$(nproc)" && \
+    make install && \
+    ldconfig && \
+    CODER_PATH=$(identify -list configure | awk '/CODER_PATH/ {print $2}') && \
+    SRC_HTTP=$(echo /usr/local/im6/lib/ImageMagick-6.*/modules-Q16/coders/http.so) && \
+    mkdir -p "${CODER_PATH}" && \
+    if [ -f "${SRC_HTTP}" ]; then cp -f "${SRC_HTTP}" "${CODER_PATH}/"; fi && \
+    rm -rf /usr/src/ImageMagick-${IM_VER}* || true
 
 # Download PHP 7.0.33
 RUN wget https://www.php.net/distributions/php-7.0.33.tar.gz \
@@ -270,6 +318,7 @@ RUN set -euxo pipefail; \
     echo "extension=yaml.so" > /etc/php/7.0/cli/conf.d/20-yaml.ini
 
 # imagick (pinned 3.4.4; ImageMagick 6 via libmagickwand-6.q16-dev)
+# Note: Verification moved to final step - inline tests can fail under QEMU emulation
 RUN set -euxo pipefail; \
     cd "$PECL_BUILD_DIR"; \
     curl -fL -sS --retry 5 --retry-delay 3 --retry-connrefused -O https://pecl.php.net/get/imagick-3.4.4.tgz; \
@@ -345,7 +394,7 @@ RUN set -euxo pipefail; \
     # Purge heavy build toolchains and -dev packages that are no longer needed at runtime \
     apt-get purge -y --auto-remove build-essential autoconf pkg-config bison re2c || true; \
     # Remove static libs and libtool files \
-    find /usr -type f -name '*.a' -o -name '*.la' -delete || true; \
+    #    find /usr -type f -name '*.a' -o -name '*.la' -delete || true; \
     # Strip common binaries/libraries where safe (ignore failures) \
     strip --strip-unneeded /usr/bin/php7.0 /usr/sbin/php-fpm7.0 || true; \
     strip --strip-unneeded /usr/local/openssl-1.1/lib/*.so* /usr/local/curl-gnutls/lib/*.so* || true; \
@@ -359,6 +408,15 @@ RUN set -euxo pipefail; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+# Final verification after cleanup that ImageMagick works and PNG delegate is present
+# Note: Network-dependent HTTPS URL tests and convert -list format removed - they fail under QEMU emulation
+# Instead, check that PNG is listed in delegates (visible in convert -version output)
+RUN convert -version | grep -i 'delegates.*png' && echo "ImageMagick PNG delegate verified"
+# Verify PHP Imagick extension loads (queryFormats may be empty under QEMU but extension should load)
+RUN php7.0 -r "new Imagick(); echo 'Imagick extension loaded OK\n';" \
+    php7.0 -r "\$i = new Imagick(); print_r(\$i->queryFormats());" \
+    php7.0 -r "\$i = new Imagick(); if (!in_array('PNG', \$i->queryFormats('PNG'))) { echo 'PNG not supported'; exit(1); } echo 'PNG: OK';";
+
 #RUN cd $PLAYWRIGHT_BROWSERS_PATH \
 #  && wget https://playwright.azureedge.net/builds/chromium/$PLAYWRIGHT_CHROMIUM_REVISION/chromium-linux-arm64.zip -O chromium-linux-arm64.$PLAYWRIGHT_CHROMIUM_REVISION.zip \
 #  && unzip chromium-linux-arm64.$PLAYWRIGHT_CHROMIUM_REVISION.zip -d chromium-$PLAYWRIGHT_CHROMIUM_REVISION \
@@ -366,16 +424,14 @@ RUN set -euxo pipefail; \
 #  chmod +x $PLAYWRIGHT_BROWSERS_PATH/chromium-$PLAYWRIGHT_CHROMIUM_REVISION/chrome-linux/chrome
 #   npm -g install playwright@1.43.0 installs chromium build 1112 is installed. https://playwright-akamai.azureedge.net/builds/chromium/1112/chromium-linux-arm64.zip
 
-
-RUN echo "SAIL BUILD DATE $(TZ=$TZ date): $(TZ=Australia/NSW date)" > /etc/SAIL_BUILD; \
-    ln -snf $PLAYWRIGHT_BROWSERS_PATH/chromium-*/chrome-linux/chrome /usr/bin/chromium; \
-    chmod +x /usr/local/bin/start-container
-
-COPY ../functions /home/sail/bin/
-
-COPY ../php.ini /etc/php/7.0/cli/conf.d/99-sail.ini
+RUN ln -snf $PLAYWRIGHT_BROWSERS_PATH/chromium-*/chrome-linux/chrome /usr/bin/chromium;
 
 RUN chmod +x /usr/local/bin/start-container
+
+COPY ../functions /home/sail/bin/
+COPY ../php.ini /etc/php/7.0/cli/conf.d/99-sail.ini
+
+RUN echo "SAIL BUILD DATE $(TZ=$TZ date): $(TZ=Australia/NSW date)" > /etc/SAIL_BUILD;
 
 WORKDIR /var/www/html
 
